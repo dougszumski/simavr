@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
 	avr_load_firmware(avr, &f);
 
 	// initialize our 'peripheral'
-	ds1338_virt_init(avr, &ee, 0xD0, 0x01, NULL, 1024);
+	ds1338_virt_init(avr, &ee, 0xD0, 0x01);
 
 	ds1338_virt_attach(avr, &ee, AVR_IOCTL_TWI_GETIRQ(0));
 	ee.verbose = 1;

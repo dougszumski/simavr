@@ -29,7 +29,8 @@ static void decompose_time(uint8_t number, uint8_t *tens, uint8_t* units);
 
 void ds1338_write_register(const uint8_t address, const uint8_t value)
 {
-	i2c_start(DS1338 + I2C_WRITE);     // set device address and write mode
+	i2c_start(DS1338 + I2C_WRITE);
+	i2c_start(DS1338 + I2C_WRITE);
 	i2c_write(address);
 	i2c_write(value);
 	i2c_stop();
@@ -39,9 +40,9 @@ uint8_t ds1338_return_register(const uint8_t reg)
 {
 	uint8_t data;
 
-	i2c_start(DS1338 + I2C_WRITE);    // Set device address and write mode
-	i2c_write(reg); // Reading here
-	i2c_rep_start(DS1338 + I2C_READ); // Set device address and read mode
+	i2c_start(DS1338 + I2C_WRITE);
+	i2c_write(reg);
+	i2c_rep_start(DS1338 + I2C_READ);
 	data = i2c_readNak();
 	i2c_stop();
 
@@ -101,6 +102,7 @@ void ds1338_get_time(ds1338_time_t * const time)
 	time->year = 10 * ((data & 0xF0) >> 4) + (data & 0x0F);
 }
 
+/* TODO: Cleanup this mess -> set everything all at once with a buffer? */
 void ds1338_set_time(const ds1338_time_t * const time)
 {
 	uint8_t tens, units, byte;

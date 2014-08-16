@@ -59,11 +59,9 @@ typedef struct ds1338_virt_t {
 	int verbose;
 
 	uint8_t selected;		// selected address
-	int index;	// byte index in current transaction
-
-	uint16_t reg_addr;		// read/write address register
-	int size;				// also implies the address size, one or two byte
-	uint8_t ee[4096];
+	uint8_t reg_selected;		// register selected
+	uint8_t reg_addr;		// read/write address register
+	uint8_t nvram[64];		// battery backed up NVRAM
 } ds1338_virt_t;
 
 /*
@@ -87,9 +85,7 @@ ds1338_virt_init(
 		struct avr_t * avr,
 		ds1338_virt_t * p,
 		uint8_t addr,
-		uint8_t mask,
-		uint8_t * data,
-		size_t size);
+		uint8_t mask);
 
 /*
  * Attach the eeprom to the AVR's TWI master code,
