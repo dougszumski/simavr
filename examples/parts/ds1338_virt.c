@@ -48,7 +48,7 @@ ds1338_virt_in_hook(
 		if (p->selected) {
 			// it was us !
 			if (p->verbose)
-				printf("eeprom received stop\n");
+				printf("DS1338 received stop\n");
 		}
 		p->selected = 0;
 		p->index = 0;
@@ -59,10 +59,14 @@ ds1338_virt_in_hook(
 	 * meant to be us, and if so reply with an ACK bit
 	 */
 	if (v.u.twi.msg & TWI_COND_START) {
+
+		printf("DS1338 addr: 0x%02x, mask: 0x%02x, twi: 0x%02x\n", p->addr_base, p->addr_mask, v.u.twi.addr);
 		p->selected = 0;
 		p->index = 0;
-		if ((p->addr_base & p->addr_mask) == (v.u.twi.addr & p->addr_mask)) {
+		if ((p->addr_base & ~p->addr_mask) == (v.u.twi.addr & ~p->addr_mask)) {
 			// it's us !
+			if (p->verbose)
+				printf("DS1338 received start\n");
 			p->selected = v.u.twi.addr;
 			avr_raise_irq(p->irq + TWI_IRQ_INPUT,
 					avr_twi_irq_msg(TWI_COND_ACK, p->selected, 1));
@@ -89,11 +93,11 @@ ds1338_virt_in_hook(
 					// add the slave address, if relevant
 					p->reg_addr += ((p->selected & 1) - p->addr_base) << 7;
 					if (p->verbose)
-						printf("eeprom set address to 0x%04x\n", p->reg_addr);
+						printf("DS1338 set address to 0x%04x\n", p->reg_addr);
 				}
 			} else {
 				if (p->verbose)
-					printf("eeprom WRITE data 0x%04x: %02x\n", p->reg_addr, v.u.twi.data);
+					printf("DS1338 WRITE data 0x%04x: %02x\n", p->reg_addr, v.u.twi.data);
 				p->ee[p->reg_addr++] = v.u.twi.data;
 			}
 			p->reg_addr &= (p->size -1);
@@ -104,7 +108,7 @@ ds1338_virt_in_hook(
 		 */
 		if (v.u.twi.msg & TWI_COND_READ) {
 			if (p->verbose)
-				printf("eeprom READ data 0x%04x: %02x\n", p->reg_addr, p->ee[p->reg_addr]);
+				printf("DS1338 READ data 0x%04x: %02x\n", p->reg_addr, p->ee[p->reg_addr]);
 			uint8_t data = p->ee[p->reg_addr++];
 			avr_raise_irq(p->irq + TWI_IRQ_INPUT,
 					avr_twi_irq_msg(TWI_COND_READ, p->selected, data));
@@ -130,6 +134,10 @@ ds1338_virt_init(
 {
 	memset(p, 0, sizeof(*p));
 	memset(p->ee, 0xff, sizeof(p->ee));
+
+	p->addr_base = addr;
+	p->addr_mask = mask;
+
 	p->irq = avr_alloc_irq(&avr->irq_pool, 0, 2, _ee_irq_names);
 	avr_irq_register_notify(p->irq + TWI_IRQ_OUTPUT, ds1338_virt_in_hook, p);
 
@@ -144,7 +152,7 @@ ds1338_virt_attach(
 		ds1338_virt_t * p,
 		uint32_t i2c_irq_base )
 {
-	// "connect" the IRQs of the eeprom to the TWI/i2c master of the AVR
+	// "connect" the IRQs of the DS1338 to the TWI/i2c master of the AVR
 	avr_connect_irq(
 		p->irq + TWI_IRQ_INPUT,
 		avr_io_getirq(avr, i2c_irq_base, TWI_IRQ_INPUT));

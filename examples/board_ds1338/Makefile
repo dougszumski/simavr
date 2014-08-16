@@ -31,9 +31,9 @@ VPATH += ../parts
 
 LDFLAGS += -lpthread
 
-all: obj atmega32_ds1338.axf ${target}
+all: obj atmega1280_ds1338.axf ${target}
 
-atmega32_ds1338.axf: atmega32_ds1338.c ds1338.c twimaster.c
+atmega1280_ds1338.axf: atmega1280_ds1338.c ds1338.c twimaster.c
 
 include ${simavr}/Makefile.common
 

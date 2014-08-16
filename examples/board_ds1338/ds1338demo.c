@@ -40,7 +40,7 @@ ds1338_virt_t ee;
 int main(int argc, char *argv[])
 {
 	elf_firmware_t f;
-	const char * fname =  "atmega32_ds1338.axf";
+	const char * fname =  "atmega1280_ds1338.axf";
 
 	printf("Firmware pathname is %s\n", fname);
 	elf_read_firmware(fname, &f);
@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
 	avr_load_firmware(avr, &f);
 
 	// initialize our 'peripheral'
-	ds1338_virt_init(avr, &ee, 0xa0, 0xfe, NULL, 1024);
+	ds1338_virt_init(avr, &ee, 0xD0, 0x01, NULL, 1024);
 
 	ds1338_virt_attach(avr, &ee, AVR_IOCTL_TWI_GETIRQ(0));
 	ee.verbose = 1;

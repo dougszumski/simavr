@@ -29,7 +29,7 @@
 #define F_CPU 7380000
 
 #include "avr_mcu_section.h"
-AVR_MCU(F_CPU, "atmega32");
+AVR_MCU(F_CPU, "atmega1280");
 
 #include "ds1338.h"
 #include "i2cmaster.h"
