@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
 	avr_load_firmware(avr, &f);
 
 	// initialize our 'peripheral'
-	ds1338_virt_init(avr, &ee, 0xD0, 0x01);
+	ds1338_virt_init(avr, &ee);
 
 	ds1338_virt_attach(avr, &ee, AVR_IOCTL_TWI_GETIRQ(0));
 	ee.verbose = 1;
@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
 	// even if not setup at startup, activate gdb if crashing
 	avr->gdb_port = 1234;
 	if (0) {
-		//avr->state = cpu_Stopped;
+		avr->state = cpu_Stopped;
 		avr_gdb_init(avr);
 	}
 

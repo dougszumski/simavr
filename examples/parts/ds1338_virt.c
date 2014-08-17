@@ -42,9 +42,33 @@ ds1338_virt_incr_addr (ds1338_virt_t * const p)
 	}
 }
 
+/*
+ * Update the system behavior if a control register is updated
+ */
+static void
+ds1338_virt_update (const ds1338_virt_t * const p)
+{
+	switch (p->reg_addr)
+	{
+		case DS1338_VIRT_SECONDS:
+			if (ds1338_get_flag(p->nvram[p->reg_addr], DS1338_VIRT_CH) == 0) {
+				printf("DS1338 clock ticking\n");
+			} else {
+				printf("DS1338 clock stopped\n");
+			}
+			break;
+		case DS1338_VIRT_CONTROL:
+			printf("DS1338 control register updated\n");
+			// Do all manner of things
+			break;
+		default:
+			// No control register updated
+			return;
+	}
+}
 
 /*
- * called when a RESET signal is sent
+ * Called when a RESET signal is sent
  */
 static void
 ds1338_virt_in_hook(
@@ -56,7 +80,7 @@ ds1338_virt_in_hook(
 	avr_twi_msg_irq_t v;
 	v.u.v = value;
 
-	//	print("DS1338 addr: 0x%02x, mask: 0x%02x, twi: 0x%02x\n", p->addr_base, p->addr_mask, v.u.twi.addr);
+	//print("DS1338 addr: 0x%02x, mask: 0x%02x, twi: 0x%02x\n", p->addr_base, p->addr_mask, v.u.twi.addr);
 
 	/*
 	 * If we receive a STOP, check it was meant to us, and reset the transaction
@@ -67,20 +91,23 @@ ds1338_virt_in_hook(
 			if (p->verbose)
 				printf("DS1338 stop\n\n");
 		}
+		/* We should not zero the register address here because read mode uses the last
+		 * register address stored and write mode always overwrites it.
+		 */
 		p->selected = 0;
 		p->reg_selected = 0;
 
-		// We should not zero the register address here because read mode uses the last
-		// register address stored and write mode always overwrites it.
 	}
+
 	/*
-	 * if we receive a start, reset status, check if the slave address is
+	 * If we receive a start, reset status, check if the slave address is
 	 * meant to be us, and if so reply with an ACK bit
 	 */
 	if (v.u.twi.msg & TWI_COND_START) {
-
+		//printf("DS1338 start attempt: 0x%02x, mask: 0x%02x, twi: 0x%02x\n", p->addr_base, p->addr_mask, v.u.twi.addr);
 		p->selected = 0;
-		if ((p->addr_base & ~p->addr_mask) == (v.u.twi.addr & ~p->addr_mask)) {
+		// Ignore the read write bit
+		if ((v.u.twi.addr >> 1) ==  (DS1338_VIRT_TWI_ADDR >> 1)) {
 			// it's us !
 			if (p->verbose)
 				printf("DS1338 start\n");
@@ -89,39 +116,31 @@ ds1338_virt_in_hook(
 					avr_twi_irq_msg(TWI_COND_ACK, p->selected, 1));
 		}
 	}
+
 	/*
 	 * If it's a data transaction, first check it is meant to be us (we
 	 * received the correct address and are selected)
 	 */
 	if (p->selected) {
-		/*
-		 * This is a write transaction, first receive as many address bytes
-		 * as we need, then set the address register, then start
-		 * writing data,
-		 */
+		// Write transaction
 		if (v.u.twi.msg & TWI_COND_WRITE) {
-
-			//printf("DS1338 WRITE data: 0x%02x\n", v.u.twi.data);
-
-			// Every byte written must be ACKed
+			// ACK the byte
 			avr_raise_irq(p->irq + TWI_IRQ_INPUT,
 					avr_twi_irq_msg(TWI_COND_ACK, p->selected, 1));
-
-			// See p13 of DS for how this works
+			// Write to the selected register (see p13. DS1388 datasheet for details)
 			if (p->reg_selected) {
 				printf("DS1338 set register 0x%02x to 0x%02x\n", p->reg_addr, v.u.twi.data);
 				p->nvram[p->reg_addr] = v.u.twi.data;
+				ds1338_virt_update(p);
 				ds1338_virt_incr_addr(p);
-
+			// No register selected so select one
 			} else {
 				printf("DS1338 select register 0x%02x\n",  v.u.twi.data);
 				p->reg_selected = 1;
 				p->reg_addr = v.u.twi.data;
 			}
 		}
-		/*
-		 * It's a read transaction, just send the next byte back to the master
-		 */
+		// Read transaction
 		if (v.u.twi.msg & TWI_COND_READ) {
 			printf("DS1338 READ data at 0x%02x: 0x%02x\n", p->reg_addr, p->nvram[p->reg_addr]);
 			uint8_t data = p->nvram[p->reg_addr];
@@ -140,15 +159,10 @@ static const char * _ds1338_irq_names[2] = {
 void
 ds1338_virt_init(
 		struct avr_t * avr,
-		ds1338_virt_t * p,
-		uint8_t addr,
-		uint8_t mask)
+		ds1338_virt_t * p )
 {
 	memset(p, 0, sizeof(*p));
 	memset(p->nvram, 0x00, sizeof(p->nvram));
-
-	p->addr_base = addr;
-	p->addr_mask = mask;
 
 	p->irq = avr_alloc_irq(&avr->irq_pool, 0, 2, _ds1338_irq_names);
 	avr_irq_register_notify(p->irq + TWI_IRQ_OUTPUT, ds1338_virt_in_hook, p);

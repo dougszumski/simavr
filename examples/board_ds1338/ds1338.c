@@ -30,7 +30,6 @@ static void decompose_time(uint8_t number, uint8_t *tens, uint8_t* units);
 void ds1338_write_register(const uint8_t address, const uint8_t value)
 {
 	i2c_start(DS1338 + I2C_WRITE);
-	i2c_start(DS1338 + I2C_WRITE);
 	i2c_write(address);
 	i2c_write(value);
 	i2c_stop();

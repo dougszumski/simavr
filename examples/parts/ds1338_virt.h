@@ -23,9 +23,14 @@
 #ifndef DS1338_VIRT_H_
 #define DS1338_VIRT_H_
 
-/* DS1338_VIRT I2C Address (Alt. addr. pin grounded) */
-#define DS1338_VIRT_ADDR		0xD0
+#include "sim_irq.h"
 
+// TWI address is fixed
+#define DS1338_VIRT_TWI_ADDR		0xD0
+
+/*
+ * Registers. Time is in BCD. See p10 of the DS1388 datasheet.
+ */
 #define DS1338_VIRT_SECONDS		0x00
 #define DS1338_VIRT_MINUTES		0x01
 #define DS1338_VIRT_HOURS		0x02
@@ -35,60 +40,60 @@
 #define DS1338_VIRT_YEAR		0x06
 #define DS1338_VIRT_CONTROL		0x07
 
-
-#include "sim_irq.h"
+/*
+ * Seconds register flag - oscillator is enabled when
+ * this is set to zero. Undefined on startup.
+ */
+#define DS1338_VIRT_CH			7
 
 /*
- * This is a generic i2c eeprom; it can be up to 4096 bytes, and can work
- * in two modes :
- * 1) ONE slave address, and either one or two bytes sent on i2c to specify
- *    the byte to read/write.
- *    So a transaction looks like:
- *    <i2c address> [<byte offset MSB>] <byte offset LSB> [<data>]
- * 2) Multiple slave address to specify the high byte offset value, and one
- *    byte offset sent
- *    So a transaction looks like:
- *    <i2c address; x low bits used as byte offset> <byte offset LSB> [<data>]
+ * Control register flags. See p11 of the DS1388 datasheet.
  *
- * these two modes seem to cover many eeproms
+ *  +-----+-----+-----+------------+------+
+ *  | OUT | RS1 | RS0 | SQW_OUTPUT | SQWE |
+ *  +-----+-----+-----+------------+------+
+ *  | X   | 0   | 0   | 1Hz        |    1 |
+ *  | X   | 0   | 1   | 4.096kHz   |    1 |
+ *  | X   | 1   | 0   | 8.192kHz   |    1 |
+ *  | X   | 1   | 1   | 32.768kHz  |    1 |
+ *  | 0   | X   | X   | 0          |    0 |
+ *  | 1   | X   | X   | 1          |    0 |
+ *  +-----+-----+-----+------------+------+
+ *
+ *  OSF : Oscillator stop flag. Set to 1 when oscillator
+ *        is interrupted.
+ *
+ *  SQWE : Square wave out, set to 1 to enable.
+ */
+#define DS1338_VIRT_RS0			0
+#define DS1338_VIRT_RS1			1
+#define DS1338_VIRT_SQWE		4
+#define DS1338_VIRT_OSF			5
+#define DS1338_VIRT_OUT			7
+
+/*
+ * DS1338 I2C clock
+ *
+ * TODO: Confirm DS1307 is pin compatible and any other similar ones.
  */
 typedef struct ds1338_virt_t {
 	avr_irq_t *	irq;		// irq list
-	uint8_t addr_base;
-	uint8_t addr_mask;
 	int verbose;
 
 	uint8_t selected;		// selected address
 	uint8_t reg_selected;		// register selected
-	uint8_t reg_addr;		// read/write address register
+	uint8_t reg_addr;		// register pointer
 	uint8_t nvram[64];		// battery backed up NVRAM
+	//uint8_t ctrl_reg;		// clock control register
 } ds1338_virt_t;
 
-/*
- * Initializes an eeprom.
- *
- * The address is the TWI/i2c address base, for example 0xa0 -- the 7 MSB are
- * relevant, the bit zero is always meant as the "read write" bit.
- * The "mask" parameter specifies which bits should be matched as a slave;
- * if you want to have a peripheral that handle read and write, use '1'; if you
- * want to also match several addresses on the bus, specify these bits on the
- * mask too.
- * Example:
- * Address 0xa1 mask 0x00 will match address 0xa0 in READ only
- * Address 0xa0 mask 0x01 will match address 0xa0 in read AND write mode
- * Address 0xa0 mask 0x03 will match 0xa0 0xa2 in read and write mode
- *
- * The "data" is optional, data is initialized as 0xff like a normal eeprom.
- */
 void
 ds1338_virt_init(
 		struct avr_t * avr,
-		ds1338_virt_t * p,
-		uint8_t addr,
-		uint8_t mask);
+		ds1338_virt_t * p );
 
 /*
- * Attach the eeprom to the AVR's TWI master code,
+ * Attach the ds1307 to the AVR's TWI master code,
  * pass AVR_IOCTL_TWI_GETIRQ(0) for example as i2c_irq_base
  */
 void
@@ -96,5 +101,19 @@ ds1338_virt_attach(
 		struct avr_t * avr,
 		ds1338_virt_t * p,
 		uint32_t i2c_irq_base );
+
+/*static inline int
+ds1338_set_flag (ds1338_virt_t *b, uint8_t bit, int val)
+{
+	int old = b->ctrl_reg & (1 << bit);
+	b->ctrl_reg = (b->ctrl_reg & ~(1 << bit)) | (val ? (1 << bit) : 0);
+	return old != 0;
+} */
+
+static inline int
+ds1338_get_flag (uint8_t reg, uint8_t bit)
+{
+	return (reg & (1 << bit)) != 0;
+}
 
 #endif /* DS1338_VIRT_H_ */
