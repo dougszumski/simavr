@@ -24,6 +24,7 @@
 #define DS1338_VIRT_H_
 
 #include "sim_irq.h"
+#include "sim_avr.h"
 
 // TWI address is fixed
 #define DS1338_VIRT_TWI_ADDR		0xD0
@@ -70,6 +71,15 @@
 #define DS1338_VIRT_SQWE		4
 #define DS1338_VIRT_OSF			5
 #define DS1338_VIRT_OUT			7
+
+// The external crystal oscillator period
+#define DS1338_CLK_PERIOD_US (1000000 / 32768)
+
+typedef struct ds1338_clock_t
+{
+	struct avr_t * avr;
+	uint8_t value;
+} ds1338_clock_t;
 
 /*
  * DS1338 I2C clock

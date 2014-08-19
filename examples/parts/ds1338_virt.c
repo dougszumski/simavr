@@ -24,9 +24,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "sim_avr.h"
+
 #include "avr_twi.h"
+
 #include "ds1338_virt.h"
+#include "sim_time.h"
+
+ds1338_clock_t ds1338_clock_g;
 
 /*
  * Increment the ds1338 register address.
@@ -43,11 +47,12 @@ ds1338_virt_incr_addr (ds1338_virt_t * const p)
 }
 
 /*
- * Update the system behavior if a control register is updated
+ * Update the system behavior after a control register is written to
  */
 static void
 ds1338_virt_update (const ds1338_virt_t * const p)
 {
+	// The address of the register which was just updated
 	switch (p->reg_addr)
 	{
 		case DS1338_VIRT_SECONDS:
@@ -65,6 +70,39 @@ ds1338_virt_update (const ds1338_virt_t * const p)
 			// No control register updated
 			return;
 	}
+}
+
+static avr_cycle_count_t
+ds1338_clock_tick (struct avr_t * avr,
+                   avr_cycle_count_t when,
+                   void * param)
+{
+	ds1338_clock_t * ds1338_clock = (ds1338_clock_t *) param;
+	ds1338_clock->value = !ds1338_clock->value;
+
+	// TODO: This should tick the registers and generate the output IRQ
+	if (ds1338_clock->value){
+		printf ("Tick\n");
+	} else{
+		printf ("Tock\n");
+	}
+
+	return when + avr_usec_to_cycles (avr, DS1338_CLK_PERIOD_US);
+}
+
+void
+ds1338_clock_xtal_init(
+		avr_t *avr,
+		ds1338_clock_t *ds1338_clock)
+{
+	ds1338_clock->avr = avr;
+	ds1338_clock->value = 0;
+
+	avr_cycle_timer_register_usec(avr, DS1338_CLK_PERIOD_US, ds1338_clock_tick, ds1338_clock);
+
+	printf("DS1338 clock crystal period %duS or %d cycles\n",
+			DS1338_CLK_PERIOD_US,
+			(int)avr_usec_to_cycles(avr, DS1338_CLK_PERIOD_US));
 }
 
 /*
@@ -166,6 +204,8 @@ ds1338_virt_init(
 
 	p->irq = avr_alloc_irq(&avr->irq_pool, 0, 2, _ds1338_irq_names);
 	avr_irq_register_notify(p->irq + TWI_IRQ_OUTPUT, ds1338_virt_in_hook, p);
+
+	ds1338_clock_xtal_init(avr, &ds1338_clock_g);
 }
 
 void
