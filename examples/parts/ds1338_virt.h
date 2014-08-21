@@ -2,6 +2,9 @@
 	ds1338_virt.h
 
 	Copyright 2014 Doug Szumski <d.s.szumski@gmail.com>
+
+	Based on i2c_eeprom example by:
+
 	Copyright 2008, 2009 Michel Pollet <buserror@gmail.com>
 
  	This file is part of simavr.
@@ -72,8 +75,8 @@
 #define DS1338_VIRT_OSF			5
 #define DS1338_VIRT_OUT			7
 
-// The external crystal oscillator period
-#define DS1338_CLK_PERIOD_US (1000000 / 32768)
+#define DS1338_CLK_FREQ 32768
+#define DS1338_CLK_PERIOD_US (1000000 / DS1338_CLK_FREQ)
 
 typedef struct ds1338_clock_t
 {
@@ -91,10 +94,11 @@ typedef struct ds1338_virt_t {
 	int verbose;
 
 	uint8_t selected;		// selected address
-	uint8_t reg_selected;		// register selected
+	uint8_t reg_selected;		// register selected for write
 	uint8_t reg_addr;		// register pointer
 	uint8_t nvram[64];		// battery backed up NVRAM
-	//uint8_t ctrl_reg;		// clock control register
+	uint16_t rtc;			// RTC counter
+	uint8_t square_wave;
 } ds1338_virt_t;
 
 void
@@ -111,14 +115,6 @@ ds1338_virt_attach(
 		struct avr_t * avr,
 		ds1338_virt_t * p,
 		uint32_t i2c_irq_base );
-
-/*static inline int
-ds1338_set_flag (ds1338_virt_t *b, uint8_t bit, int val)
-{
-	int old = b->ctrl_reg & (1 << bit);
-	b->ctrl_reg = (b->ctrl_reg & ~(1 << bit)) | (val ? (1 << bit) : 0);
-	return old != 0;
-} */
 
 static inline int
 ds1338_get_flag (uint8_t reg, uint8_t bit)

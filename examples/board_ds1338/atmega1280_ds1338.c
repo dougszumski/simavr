@@ -50,12 +50,12 @@ main ()
 			.year = 7,
 	};
 
-	ds1338_set_time(&time);
+	//ds1338_set_time(&time);
 
-	ds1338_get_time(&time);
+	//ds1338_get_time(&time);
 
-	cli();
-	sleep_mode();
+	//cli();
+	//sleep_mode();
 
 
 

@@ -2,6 +2,9 @@
 	ds1338_virt.c
 
 	Copyright 2014 Doug Szumski <d.s.szumski@gmail.com>
+
+	Based on i2c_eeprom example by:
+
 	Copyright 2008, 2009 Michel Pollet <buserror@gmail.com>
 
  	This file is part of simavr.
@@ -26,11 +29,16 @@
 #include <string.h>
 
 #include "avr_twi.h"
-
 #include "ds1338_virt.h"
 #include "sim_time.h"
 
-ds1338_clock_t ds1338_clock_g;
+// Square wave out prescaler modes; see p11 of DS1338 datasheet.
+enum {
+	DS1338_VIRT_PRESCALER_DIV_32768 = 0,
+	DS1338_VIRT_PRESCALER_DIV_8,
+	DS1338_VIRT_PRESCALER_DIV_4,
+	DS1338_VIRT_PRESCALER_OFF,
+};
 
 /*
  * Increment the ds1338 register address.
@@ -64,7 +72,8 @@ ds1338_virt_update (const ds1338_virt_t * const p)
 			break;
 		case DS1338_VIRT_CONTROL:
 			printf("DS1338 control register updated\n");
-			// Do all manner of things
+			// TODO: Check if changing the prescaler resets the clock counter
+			// and if so do it here?
 			break;
 		default:
 			// No control register updated
@@ -72,33 +81,103 @@ ds1338_virt_update (const ds1338_virt_t * const p)
 	}
 }
 
-static avr_cycle_count_t
-ds1338_clock_tick (struct avr_t * avr,
-                   avr_cycle_count_t when,
-                   void * param)
-{
-	ds1338_clock_t * ds1338_clock = (ds1338_clock_t *) param;
-	ds1338_clock->value = !ds1338_clock->value;
+static void
+ds1338_virt_tick_time(ds1338_virt_t *p) {
 
-	// TODO: This should tick the registers and generate the output IRQ
-	if (ds1338_clock->value){
-		printf ("Tick\n");
-	} else{
-		printf ("Tock\n");
-	}
 
-	return when + avr_usec_to_cycles (avr, DS1338_CLK_PERIOD_US);
+
 }
 
-void
-ds1338_clock_xtal_init(
-		avr_t *avr,
-		ds1338_clock_t *ds1338_clock)
+static void
+ds1338_virt_square_wave_output_invert (ds1338_virt_t *p)
 {
-	ds1338_clock->avr = avr;
-	ds1338_clock->value = 0;
+	if(!ds1338_get_flag(p->nvram[DS1338_VIRT_CONTROL], DS1338_VIRT_SQWE)) {
+		// Square wave output disabled
+		return;
+	}
 
-	avr_cycle_timer_register_usec(avr, DS1338_CLK_PERIOD_US, ds1338_clock_tick, ds1338_clock);
+	p->square_wave = !p->square_wave;
+	// TODO: Fire event
+	if (p->square_wave) {
+		printf ("Tick\n");
+	} else {
+		printf ("Tock\n");
+	}
+}
+
+static avr_cycle_count_t
+ds1338_virt_clock_tick (struct avr_t * avr,
+                   avr_cycle_count_t when,
+                   ds1338_virt_t *p)
+{
+	avr_cycle_count_t next_tick = when + avr_usec_to_cycles (avr, DS1338_CLK_PERIOD_US / 2);
+
+	if (!ds1338_get_flag (p->nvram[DS1338_VIRT_SECONDS], DS1338_VIRT_CH)) {
+		// Oscillator is enabled. Note that this counter is allowed to wrap.
+		p->rtc++;
+	} else {
+		// Avoid a condition match below with the clock switched off
+		return next_tick;
+	}
+
+	/*
+	 * Update the time
+	 */
+	if (p->rtc == 0) {
+		// 1 second has passed
+		ds1338_virt_tick_time(p);
+	}
+
+	/*
+	 * Deal with the square wave output
+	 */
+	uint8_t prescaler_mode = ds1338_get_flag (p->nvram[DS1338_VIRT_CONTROL],
+	                                          DS1338_VIRT_RS0)
+	                      + (ds1338_get_flag (p->nvram[DS1338_VIRT_CONTROL],
+	                                          DS1338_VIRT_RS1) << 1);
+
+	switch (prescaler_mode)
+	{
+		case DS1338_VIRT_PRESCALER_DIV_32768:
+			if ((p->rtc + 1) % DS1338_CLK_FREQ == 0) {
+				//printf("DS1338 COUNTER: %d\n", p->rtc + 1);
+				ds1338_virt_square_wave_output_invert(p);
+			}
+			break;
+		case DS1338_VIRT_PRESCALER_DIV_8:
+			if ((p->rtc + 1) % (DS1338_CLK_FREQ / 8) == 0)
+				ds1338_virt_square_wave_output_invert(p);
+			break;
+		case DS1338_VIRT_PRESCALER_DIV_4:
+			if ((p->rtc + 1) % (DS1338_CLK_FREQ / 4) == 0)
+				ds1338_virt_square_wave_output_invert(p);
+			break;
+		case DS1338_VIRT_PRESCALER_OFF:
+			ds1338_virt_square_wave_output_invert(p);
+			break;
+		default:
+			// Invalid mode
+			break;
+	}
+
+	return next_tick;
+}
+
+static void
+ds1338_virt_clock_xtal_init(
+		struct avr_t * avr,
+		ds1338_virt_t *p)
+{
+	p->rtc = 0;
+
+	/*
+	 * Set a timer for half the clock period to allow reconstruction
+	 * of the square wave output at the maximum possible frequency.
+	 */
+	avr_cycle_timer_register_usec(avr,
+	                              DS1338_CLK_PERIOD_US / 2,
+	                              (void *) ds1338_virt_clock_tick,
+	                              p);
 
 	printf("DS1338 clock crystal period %duS or %d cycles\n",
 			DS1338_CLK_PERIOD_US,
@@ -205,7 +284,10 @@ ds1338_virt_init(
 	p->irq = avr_alloc_irq(&avr->irq_pool, 0, 2, _ds1338_irq_names);
 	avr_irq_register_notify(p->irq + TWI_IRQ_OUTPUT, ds1338_virt_in_hook, p);
 
-	ds1338_clock_xtal_init(avr, &ds1338_clock_g);
+	// Start with the oscillator disabled, at least until there is some "battery backup"
+	p->nvram[DS1338_VIRT_SECONDS] |=  (1 << DS1338_VIRT_CH);
+
+	ds1338_virt_clock_xtal_init(avr, p);
 }
 
 void

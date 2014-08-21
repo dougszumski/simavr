@@ -36,6 +36,15 @@
 // Control register settings: 1Hz square wave out
 #define DS1338_CONTROL_SETTING 0b10010000
 
+// 4kHz
+//#define DS1338_CONTROL_SETTING 0b10010001
+
+// 8 kHz
+//#define DS1338_CONTROL_SETTING 0b10010010
+
+// 32kHz
+//#define DS1338_CONTROL_SETTING 0b10010011
+
 typedef struct ds1338_time_t
 {
 	uint8_t seconds;
