@@ -226,7 +226,6 @@ ds1338_virt_tick_time(ds1338_virt_t *p) {
 	reg.max_val = 99;
 	reg.tens_mask = 0b11110000;
 	cascade = ds1338_virt_tick_bcd_reg (&reg);
-
 }
 
 static void
@@ -250,27 +249,42 @@ ds1338_virt_square_wave_output_invert (ds1338_virt_t *p)
  * Remove
  */
 static void
-ds1338_print_time(ds1338_virt_t *p) {
-	uint8_t seconds = (p->nvram[DS1338_VIRT_SECONDS] & 0xF) + ((p->nvram[DS1338_VIRT_SECONDS] & 0b01110000) >> 4)*10;
-	uint8_t minutes = (p->nvram[DS1338_VIRT_MINUTES] & 0xF) + (p->nvram[DS1338_VIRT_MINUTES] >> 4)*10;
+ds1338_print_time (ds1338_virt_t *p)
+{
+	uint8_t seconds = (p->nvram[DS1338_VIRT_SECONDS] & 0xF)
+	                + ((p->nvram[DS1338_VIRT_SECONDS] & 0b01110000) >> 4)
+	                                * 10;
+	uint8_t minutes = (p->nvram[DS1338_VIRT_MINUTES] & 0xF)
+	                + (p->nvram[DS1338_VIRT_MINUTES] >> 4) * 10;
 
 	uint8_t pm = 0;
 	uint8_t hours;
-	if (ds1338_get_flag (p->nvram[DS1338_VIRT_HOURS], DS1338_VIRT_12_24_HR)) {
-		// 12hr
-		pm = ds1338_get_flag (p->nvram[DS1338_VIRT_HOURS], DS1338_VIRT_AM_PM);
-		hours = (p->nvram[DS1338_VIRT_HOURS] & 0xF) + ((p->nvram[DS1338_VIRT_HOURS] & 0b00010000) >> 4)*10;
-	} else {
-		// 24 hr
-		hours = (p->nvram[DS1338_VIRT_HOURS] & 0xF) + ((p->nvram[DS1338_VIRT_HOURS] & 0b00110000) >> 4)*10;
+	if (ds1338_get_flag (p->nvram[DS1338_VIRT_HOURS], DS1338_VIRT_12_24_HR))
+	{
+		// 12hr mode
+		pm = ds1338_get_flag (p->nvram[DS1338_VIRT_HOURS],
+		                      DS1338_VIRT_AM_PM);
+		hours = (p->nvram[DS1338_VIRT_HOURS] & 0xF)
+		                + ((p->nvram[DS1338_VIRT_HOURS] & 0b00010000)
+		                                >> 4) * 10;
+	} else
+	{
+		// 24hr mode
+		hours = (p->nvram[DS1338_VIRT_HOURS] & 0xF)
+		                + ((p->nvram[DS1338_VIRT_HOURS] & 0b00110000)
+		                                >> 4) * 10;
 	}
 
 	uint8_t day = p->nvram[DS1338_VIRT_DAY] & 0b00000111;
-	uint8_t date = (p->nvram[DS1338_VIRT_DATE] & 0xF) + (p->nvram[DS1338_VIRT_DATE] >> 4)*10;
-	uint8_t month = (p->nvram[DS1338_VIRT_MONTH] & 0xF) + (p->nvram[DS1338_VIRT_MONTH] >> 4)*10;
-	uint8_t year = (p->nvram[DS1338_VIRT_YEAR] & 0xF) + (p->nvram[DS1338_VIRT_YEAR] >> 4)*10;
+	uint8_t date = (p->nvram[DS1338_VIRT_DATE] & 0xF)
+	                + (p->nvram[DS1338_VIRT_DATE] >> 4) * 10;
+	uint8_t month = (p->nvram[DS1338_VIRT_MONTH] & 0xF)
+	                + (p->nvram[DS1338_VIRT_MONTH] >> 4) * 10;
+	uint8_t year = (p->nvram[DS1338_VIRT_YEAR] & 0xF)
+	                + (p->nvram[DS1338_VIRT_YEAR] >> 4) * 10;
 
-	printf("Time: %02i:%02i:%02i  Day: %i Date: %02i:%02i:%02i PM:%01x\n", hours, minutes, seconds, day, date, month, year, pm);
+	printf ("Time: %02i:%02i:%02i  Day: %i Date: %02i:%02i:%02i PM:%01x\n",
+	        hours, minutes, seconds, day, date, month, year, pm);
 }
 
 static avr_cycle_count_t
@@ -366,6 +380,7 @@ ds1338_virt_in_hook(
 	avr_twi_msg_irq_t v;
 	v.u.v = value;
 
+	p->verbose = 0;
 	//print("DS1338 addr: 0x%02x, mask: 0x%02x, twi: 0x%02x\n", p->addr_base, p->addr_mask, v.u.twi.addr);
 
 	/*
@@ -415,20 +430,23 @@ ds1338_virt_in_hook(
 					avr_twi_irq_msg(TWI_COND_ACK, p->selected, 1));
 			// Write to the selected register (see p13. DS1388 datasheet for details)
 			if (p->reg_selected) {
-				printf("DS1338 set register 0x%02x to 0x%02x\n", p->reg_addr, v.u.twi.data);
+				if (p->verbose)
+					printf("DS1338 set register 0x%02x to 0x%02x\n", p->reg_addr, v.u.twi.data);
 				p->nvram[p->reg_addr] = v.u.twi.data;
 				ds1338_virt_update(p);
 				ds1338_virt_incr_addr(p);
 			// No register selected so select one
 			} else {
-				printf("DS1338 select register 0x%02x\n",  v.u.twi.data);
+				if (p->verbose)
+					printf("DS1338 select register 0x%02x\n",  v.u.twi.data);
 				p->reg_selected = 1;
 				p->reg_addr = v.u.twi.data;
 			}
 		}
 		// Read transaction
 		if (v.u.twi.msg & TWI_COND_READ) {
-			printf("DS1338 READ data at 0x%02x: 0x%02x\n", p->reg_addr, p->nvram[p->reg_addr]);
+			if (p->verbose)
+				printf("DS1338 READ data at 0x%02x: 0x%02x\n", p->reg_addr, p->nvram[p->reg_addr]);
 			uint8_t data = p->nvram[p->reg_addr];
 			ds1338_virt_incr_addr(p);
 			avr_raise_irq(p->irq + TWI_IRQ_INPUT,

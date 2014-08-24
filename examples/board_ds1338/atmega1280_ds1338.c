@@ -19,11 +19,12 @@
  along with simavr.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <string.h>
 #include <avr/io.h>
 #include <avr/sleep.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+
+#include <stdio.h>
 
 #undef F_CPU
 #define F_CPU 7380000
@@ -41,29 +42,28 @@ main ()
 	ds1338_init();
 
 	ds1338_time_t time = {
-			.date = 28,
-			.day = 2,
-			.hours = 3,
-			.minutes = 4,
-			.month = 2,
-			.seconds = 6,
+			.date = 31,
+			.day = 6,
+			.hours = 23,
+			.minutes = 59,
+			.month = 12,
+			.seconds = 50,
 			.year = 14,
 	};
 
 	ds1338_set_time(&time);
 
-	//ds1338_get_time(&time);
-
-	//cli();
-	//sleep_mode();
-
-
-
 	/*
 	 * Demonstrate the virtual part functionality.
 	 */
-	for (;;)
-	{
+	for(;;) {
+		_delay_ms(100);
+		ds1338_get_time(&time);
+		if (time.seconds == 10)
+			break;
 	}
+
+	cli();
+	sleep_mode();
 
 }
