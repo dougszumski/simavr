@@ -32,7 +32,9 @@
 #include "ds1338_virt.h"
 #include "sim_time.h"
 
-// Square wave out prescaler modes; see p11 of DS1338 datasheet.
+/*
+ * Square wave out prescaler modes; see p11 of DS1338 datasheet.
+ */
 enum {
 	DS1338_VIRT_PRESCALER_DIV_32768 = 0,
 	DS1338_VIRT_PRESCALER_DIV_8,
@@ -55,7 +57,7 @@ ds1338_virt_incr_addr (ds1338_virt_t * const p)
 }
 
 /*
- * Update the system behavior after a control register is written to
+ * Update the system behavior after a control register is written to.
  */
 static void
 ds1338_virt_update (const ds1338_virt_t * const p)
@@ -81,10 +83,149 @@ ds1338_virt_update (const ds1338_virt_t * const p)
 	}
 }
 
+/*
+ * Calculate days in month given the year. The year should be specified
+ * in 4 digit format.
+ */
+static uint8_t
+ds1338_virt_days_in_month(uint8_t month, uint16_t year) {
+
+	uint8_t is_leap_year = 1;
+	if ((year & 3) == 0 && ((year % 25) != 0 || (year & 15) == 0))
+		is_leap_year = 0;
+
+	uint8_t days;
+	if (month == 2)
+		days = 28 + is_leap_year;
+	else
+		days = 31 - (month - 1) % 7 % 2;
+
+	return days;
+}
+
+/*
+ * Ticks a BCD register according to the specified constraints.
+ */
+static uint8_t
+ds1338_virt_tick_bcd_reg(bcd_reg_t * bcd_reg)
+{
+	// Unpack BCD
+	uint8_t x = (*bcd_reg->reg & 0x0F) +
+			10*((*bcd_reg->reg & bcd_reg->tens_mask) >> 4);
+
+	// Tick
+	uint8_t cascade = 0;
+	if (++x > bcd_reg->max_val) {
+		x = bcd_reg->min_val;
+		cascade = 1;
+	}
+
+	// Set the BCD part of the register
+	*bcd_reg->reg &= ~(0x0F | bcd_reg->tens_mask);
+	*bcd_reg->reg |= (x / 10 << 4) + x % 10;
+
+	return cascade;
+}
+
+/*
+ * Ticks the time registers. See table 3, p10 of the DS1338 datasheet.
+ */
 static void
 ds1338_virt_tick_time(ds1338_virt_t *p) {
 
+	/*
+	 * Seconds
+	 */
+	bcd_reg_t reg = {
+			.reg = &p->nvram[DS1338_VIRT_SECONDS],
+			.min_val = 0,
+			.max_val = 59,
+			.tens_mask = 0b01110000
+		};
+	uint8_t cascade = ds1338_virt_tick_bcd_reg (&reg);
+	if (!cascade)
+		return;
 
+	/*
+	 * Minutes
+	 */
+	reg.reg = &p->nvram[DS1338_VIRT_MINUTES];
+	cascade = ds1338_virt_tick_bcd_reg (&reg);
+	if (!cascade)
+		return;
+
+	/*
+	 * Hours
+	 */
+	reg.reg = &p->nvram[DS1338_VIRT_HOURS];
+	if (ds1338_get_flag (p->nvram[DS1338_VIRT_HOURS], DS1338_VIRT_12_24_HR)) {
+		// 12 hour mode
+		reg.min_val = 1;
+		reg.max_val = 12;
+		reg.tens_mask = 0b00010000;
+		uint8_t pm = ds1338_get_flag (p->nvram[DS1338_VIRT_HOURS], DS1338_VIRT_AM_PM);
+		cascade = ds1338_virt_tick_bcd_reg (&reg);
+		if (cascade) {
+			if (pm) {
+				// Switch to AM
+				p->nvram[DS1338_VIRT_HOURS] &= !(1 << DS1338_VIRT_AM_PM);
+			} else {
+				// Switch to PM and catch the cascade
+				p->nvram[DS1338_VIRT_HOURS] |= (1 << DS1338_VIRT_AM_PM);
+				cascade = 0;
+			}
+		}
+	} else {
+		// 24 hour mode
+		reg.min_val = 0;
+		reg.max_val = 23;
+		reg.tens_mask = 0b00110000;
+		cascade = ds1338_virt_tick_bcd_reg (&reg);
+	}
+	if (!cascade)
+		return;
+
+	/*
+	 * Day
+	 */
+	reg.reg = &p->nvram[DS1338_VIRT_DAY];
+	reg.min_val = 1;
+	reg.max_val = 7;
+	reg.tens_mask = 0;
+	ds1338_virt_tick_bcd_reg (&reg);
+
+	/*
+	 * Date
+	 */
+	reg.reg = &p->nvram[DS1338_VIRT_DATE];
+	// Valid leap year compensation until 2100, just like the real part!
+	uint16_t year = 2000 + UNPACK_BCD (p->nvram[DS1338_VIRT_YEAR]);
+	reg.max_val = ds1338_virt_days_in_month (
+	               UNPACK_BCD (p->nvram[DS1338_VIRT_MONTH]),
+	               year);
+	reg.tens_mask = 0b00110000;
+	cascade = ds1338_virt_tick_bcd_reg (&reg);
+	if (!cascade)
+		return;
+
+	/*
+	 * Month
+	 */
+	reg.reg = &p->nvram[DS1338_VIRT_MONTH];
+	reg.max_val = 12;
+	reg.tens_mask = 0b00010000;
+	cascade = ds1338_virt_tick_bcd_reg (&reg);
+	if (!cascade)
+		return;
+
+	/*
+	 * Year
+	 */
+	reg.reg = &p->nvram[DS1338_VIRT_YEAR];
+	reg.min_val = 0;
+	reg.max_val = 99;
+	reg.tens_mask = 0b11110000;
+	cascade = ds1338_virt_tick_bcd_reg (&reg);
 
 }
 
@@ -99,10 +240,37 @@ ds1338_virt_square_wave_output_invert (ds1338_virt_t *p)
 	p->square_wave = !p->square_wave;
 	// TODO: Fire event
 	if (p->square_wave) {
-		printf ("Tick\n");
+		//printf ("Tick\n");
 	} else {
-		printf ("Tock\n");
+		//printf ("Tock\n");
 	}
+}
+
+/*
+ * Remove
+ */
+static void
+ds1338_print_time(ds1338_virt_t *p) {
+	uint8_t seconds = (p->nvram[DS1338_VIRT_SECONDS] & 0xF) + ((p->nvram[DS1338_VIRT_SECONDS] & 0b01110000) >> 4)*10;
+	uint8_t minutes = (p->nvram[DS1338_VIRT_MINUTES] & 0xF) + (p->nvram[DS1338_VIRT_MINUTES] >> 4)*10;
+
+	uint8_t pm = 0;
+	uint8_t hours;
+	if (ds1338_get_flag (p->nvram[DS1338_VIRT_HOURS], DS1338_VIRT_12_24_HR)) {
+		// 12hr
+		pm = ds1338_get_flag (p->nvram[DS1338_VIRT_HOURS], DS1338_VIRT_AM_PM);
+		hours = (p->nvram[DS1338_VIRT_HOURS] & 0xF) + ((p->nvram[DS1338_VIRT_HOURS] & 0b00010000) >> 4)*10;
+	} else {
+		// 24 hr
+		hours = (p->nvram[DS1338_VIRT_HOURS] & 0xF) + ((p->nvram[DS1338_VIRT_HOURS] & 0b00110000) >> 4)*10;
+	}
+
+	uint8_t day = p->nvram[DS1338_VIRT_DAY] & 0b00000111;
+	uint8_t date = (p->nvram[DS1338_VIRT_DATE] & 0xF) + (p->nvram[DS1338_VIRT_DATE] >> 4)*10;
+	uint8_t month = (p->nvram[DS1338_VIRT_MONTH] & 0xF) + (p->nvram[DS1338_VIRT_MONTH] >> 4)*10;
+	uint8_t year = (p->nvram[DS1338_VIRT_YEAR] & 0xF) + (p->nvram[DS1338_VIRT_YEAR] >> 4)*10;
+
+	printf("Time: %02i:%02i:%02i  Day: %i Date: %02i:%02i:%02i PM:%01x\n", hours, minutes, seconds, day, date, month, year, pm);
 }
 
 static avr_cycle_count_t
@@ -126,6 +294,7 @@ ds1338_virt_clock_tick (struct avr_t * avr,
 	if (p->rtc == 0) {
 		// 1 second has passed
 		ds1338_virt_tick_time(p);
+		ds1338_print_time(p);
 	}
 
 	/*

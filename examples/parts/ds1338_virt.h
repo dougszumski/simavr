@@ -23,6 +23,18 @@
 	along with simavr.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/*
+ *  A virtual DS1338 real time clock which runs on the TWI bus.
+ *
+ *  Features:
+ *
+ *  > External oscillator is synced to the AVR core
+ *  > Square wave output with scalable frequency
+ *  > Leap year correction until 2100
+ *
+ *  Should also work for the pin compatible DS1307 device.
+ */
+
 #ifndef DS1338_VIRT_H_
 #define DS1338_VIRT_H_
 
@@ -33,7 +45,8 @@
 #define DS1338_VIRT_TWI_ADDR		0xD0
 
 /*
- * Registers. Time is in BCD. See p10 of the DS1388 datasheet.
+ * Internal registers. Time is in BCD.
+ * See p10 of the DS1388 datasheet.
  */
 #define DS1338_VIRT_SECONDS		0x00
 #define DS1338_VIRT_MINUTES		0x01
@@ -49,6 +62,19 @@
  * this is set to zero. Undefined on startup.
  */
 #define DS1338_VIRT_CH			7
+
+/*
+ * 12/24 hour select bit. When high clock is in 12 hour
+ * mode and the AM/PM bit is operational. When low the
+ * AM/PM bit becomes part of the tens counter for the
+ * 24 hour clock.
+ */
+#define DS1338_VIRT_12_24_HR		6
+
+/*
+ * AM/PM flag for 12 hour mode. PM is high.
+ */
+#define DS1338_VIRT_AM_PM		5
 
 /*
  * Control register flags. See p11 of the DS1388 datasheet.
@@ -78,6 +104,9 @@
 #define DS1338_CLK_FREQ 32768
 #define DS1338_CLK_PERIOD_US (1000000 / DS1338_CLK_FREQ)
 
+// Generic unpack of 8bit BCD register. Don't use on seconds or hours.
+#define UNPACK_BCD(x) (((x) & 0x0F) + ((x) >> 4) * 10)
+
 typedef struct ds1338_clock_t
 {
 	struct avr_t * avr;
@@ -85,9 +114,20 @@ typedef struct ds1338_clock_t
 } ds1338_clock_t;
 
 /*
- * DS1338 I2C clock
+ * Describes the behaviour of the specified BCD register.
  *
- * TODO: Confirm DS1307 is pin compatible and any other similar ones.
+ * The tens mask is used to avoid config bits present in
+ * the same register.
+ */
+typedef struct bcd_reg_t {
+	uint8_t * reg;
+	uint8_t min_val;
+	uint8_t max_val;
+	uint8_t tens_mask;
+} bcd_reg_t;
+
+/*
+ * DS1338 I2C clock
  */
 typedef struct ds1338_virt_t {
 	avr_irq_t *	irq;		// irq list

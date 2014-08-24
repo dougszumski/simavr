@@ -41,16 +41,16 @@ main ()
 	ds1338_init();
 
 	ds1338_time_t time = {
-			.date = 1,
+			.date = 28,
 			.day = 2,
 			.hours = 3,
 			.minutes = 4,
-			.month = 5,
+			.month = 2,
 			.seconds = 6,
-			.year = 7,
+			.year = 14,
 	};
 
-	//ds1338_set_time(&time);
+	ds1338_set_time(&time);
 
 	//ds1338_get_time(&time);
 
