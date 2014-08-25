@@ -35,35 +35,52 @@ AVR_MCU(F_CPU, "atmega1280");
 #include "ds1338.h"
 #include "i2cmaster.h"
 
+volatile uint8_t update_time;
+
 int
 main ()
 {
 	i2c_init ();
-	ds1338_init();
 
+	// Setup a pin change interrupt on pin D2
+	DDRD &= ~(1 << PD2);
+	// Fire on the rising edge
+	// FIXME: IF ISC21 is 0, which fires on any edge the clock ticks at the same rate???
+	//EICRA = (1 << ISC20) | (0 << ISC21);
+	EICRA = (1 << ISC20) | (1 << ISC21);
+	EIMSK = (1 << INT2);
+	EIFR = (1 << INTF3); // Clear flag, probably not required
+	sei();
+
+	/*
+	 * Demonstrate the virtual part functionality.
+	 */
+	ds1338_init();
 	ds1338_time_t time = {
 			.date = 31,
 			.day = 6,
 			.hours = 23,
 			.minutes = 59,
 			.month = 12,
-			.seconds = 50,
+			.seconds = 56,
 			.year = 14,
 	};
-
 	ds1338_set_time(&time);
 
-	/*
-	 * Demonstrate the virtual part functionality.
-	 */
-	for(;;) {
-		_delay_ms(100);
-		ds1338_get_time(&time);
-		if (time.seconds == 10)
-			break;
+	while(time.seconds != 3)
+	{
+		if (update_time) {
+			ds1338_get_time(&time);
+			update_time = 0;
+		}
 	}
 
 	cli();
 	sleep_mode();
 
+}
+
+ISR (INT2_vect )
+{
+	update_time = 1;
 }

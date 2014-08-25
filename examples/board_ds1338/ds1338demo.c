@@ -23,19 +23,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <libgen.h>
-#include <pthread.h>
 
 #include "sim_avr.h"
 #include "avr_twi.h"
 #include "sim_elf.h"
 #include "sim_gdb.h"
-#include "sim_vcd_file.h"
 #include "ds1338_virt.h"
 
 avr_t * avr = NULL;
-avr_vcd_t vcd_file;
-
-ds1338_virt_t ee;
+ds1338_virt_t ds1338_virt;
 
 int main(int argc, char *argv[])
 {
@@ -55,30 +51,29 @@ int main(int argc, char *argv[])
 	avr_init(avr);
 	avr_load_firmware(avr, &f);
 
-	// initialize our 'peripheral'
-	ds1338_virt_init(avr, &ee);
+	// Initialize our 'peripheral'
+	ds1338_virt_init(avr, &ds1338_virt);
 
-	ds1338_virt_attach(avr, &ee, AVR_IOCTL_TWI_GETIRQ(0));
-	ee.verbose = 1;
+	// Hook up the TWI bus
+	ds1338_virt_attach_twi(&ds1338_virt, AVR_IOCTL_TWI_GETIRQ(0));
 
-	// even if not setup at startup, activate gdb if crashing
+	// Connect the square wave output
+	ds1338_pin_t wiring = {
+			.port = 'D',
+			.pin = 2
+	};
+	ds1338_virt_attach_square_wave_output (&ds1338_virt, &wiring);
+
+	// Enable debug info
+	// TODO: Convert to logger?
+	ds1338_virt.verbose = 1;
+
+	// Even if not setup at startup, activate gdb if crashing
 	avr->gdb_port = 1234;
 	if (0) {
 		avr->state = cpu_Stopped;
 		avr_gdb_init(avr);
 	}
-
-	/*
-	 *	VCD file initialization
-	 *
-	 *	This will allow you to create a "wave" file and display it in gtkwave
-	 *	Pressing "r" and "s" during the demo will start and stop recording
-	 *	the pin changes
-	 */
-//	avr_vcd_init(avr, "gtkwave_output.vcd", &vcd_file, 100000 /* usec */);
-//	avr_vcd_add_signal(&vcd_file,
-//		avr_io_getirq(avr, AVR_IOCTL_TWI_GETIRQ(0), TWI_IRQ_STATUS), 8 /* bits */ ,
-//		"TWSR" );
 
 	printf( "\nDS1338 demo launching:\n");
 

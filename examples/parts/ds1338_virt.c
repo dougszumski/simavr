@@ -32,15 +32,6 @@
 #include "ds1338_virt.h"
 #include "sim_time.h"
 
-/*
- * Square wave out prescaler modes; see p11 of DS1338 datasheet.
- */
-enum {
-	DS1338_VIRT_PRESCALER_DIV_32768 = 0,
-	DS1338_VIRT_PRESCALER_DIV_8,
-	DS1338_VIRT_PRESCALER_DIV_4,
-	DS1338_VIRT_PRESCALER_OFF,
-};
 
 /*
  * Increment the ds1338 register address.
@@ -198,7 +189,7 @@ ds1338_virt_tick_time(ds1338_virt_t *p) {
 	 * Date
 	 */
 	reg.reg = &p->nvram[DS1338_VIRT_DATE];
-	// Valid leap year compensation until 2100, just like the real part!
+	// Insert a y2.1k bug like they do in the original part
 	uint16_t year = 2000 + UNPACK_BCD (p->nvram[DS1338_VIRT_YEAR]);
 	reg.max_val = ds1338_virt_days_in_month (
 	               UNPACK_BCD (p->nvram[DS1338_VIRT_MONTH]),
@@ -229,7 +220,7 @@ ds1338_virt_tick_time(ds1338_virt_t *p) {
 }
 
 static void
-ds1338_virt_square_wave_output_invert (ds1338_virt_t *p)
+ds1338_virt_cycle_square_wave (ds1338_virt_t *p)
 {
 	if(!ds1338_get_flag(p->nvram[DS1338_VIRT_CONTROL], DS1338_VIRT_SQWE)) {
 		// Square wave output disabled
@@ -237,11 +228,13 @@ ds1338_virt_square_wave_output_invert (ds1338_virt_t *p)
 	}
 
 	p->square_wave = !p->square_wave;
-	// TODO: Fire event
+
 	if (p->square_wave) {
-		//printf ("Tick\n");
+		avr_raise_irq(p->irq + DS1338_SQW_IRQ_OUT, 1);
+		printf ("Tick\n");
 	} else {
-		//printf ("Tock\n");
+		avr_raise_irq(p->irq + DS1338_SQW_IRQ_OUT, 0);
+		printf ("Tock\n");
 	}
 }
 
@@ -324,19 +317,19 @@ ds1338_virt_clock_tick (struct avr_t * avr,
 		case DS1338_VIRT_PRESCALER_DIV_32768:
 			if ((p->rtc + 1) % DS1338_CLK_FREQ == 0) {
 				//printf("DS1338 COUNTER: %d\n", p->rtc + 1);
-				ds1338_virt_square_wave_output_invert(p);
+				ds1338_virt_cycle_square_wave(p);
 			}
 			break;
 		case DS1338_VIRT_PRESCALER_DIV_8:
 			if ((p->rtc + 1) % (DS1338_CLK_FREQ / 8) == 0)
-				ds1338_virt_square_wave_output_invert(p);
+				ds1338_virt_cycle_square_wave(p);
 			break;
 		case DS1338_VIRT_PRESCALER_DIV_4:
 			if ((p->rtc + 1) % (DS1338_CLK_FREQ / 4) == 0)
-				ds1338_virt_square_wave_output_invert(p);
+				ds1338_virt_cycle_square_wave(p);
 			break;
 		case DS1338_VIRT_PRESCALER_OFF:
-			ds1338_virt_square_wave_output_invert(p);
+			ds1338_virt_cycle_square_wave(p);
 			break;
 		default:
 			// Invalid mode
@@ -455,11 +448,15 @@ ds1338_virt_in_hook(
 	}
 }
 
-static const char * _ds1338_irq_names[2] = {
-		[TWI_IRQ_INPUT] = "8>ds1338.out",
-		[TWI_IRQ_OUTPUT] = "32<ds1338.in",
+static const char * _ds1338_irq_names[DS1338_IRQ_COUNT] = {
+		[DS1338_TWI_IRQ_INPUT] = "8>ds1338.out",
+		[DS1338_TWI_IRQ_OUTPUT] = "32<ds1338.in",
+		[DS1338_SQW_IRQ_OUT] = ">ds1338_sqw.out",
 };
 
+/*
+ * Initialise the DS1388 virtual part. This should be called before anything else.
+ */
 void
 ds1338_virt_init(
 		struct avr_t * avr,
@@ -468,7 +465,9 @@ ds1338_virt_init(
 	memset(p, 0, sizeof(*p));
 	memset(p->nvram, 0x00, sizeof(p->nvram));
 
-	p->irq = avr_alloc_irq(&avr->irq_pool, 0, 2, _ds1338_irq_names);
+	p->avr = avr;
+
+	p->irq = avr_alloc_irq(&avr->irq_pool, 0, DS1338_IRQ_COUNT, _ds1338_irq_names);
 	avr_irq_register_notify(p->irq + TWI_IRQ_OUTPUT, ds1338_virt_in_hook, p);
 
 	// Start with the oscillator disabled, at least until there is some "battery backup"
@@ -477,17 +476,31 @@ ds1338_virt_init(
 	ds1338_virt_clock_xtal_init(avr, p);
 }
 
+/*
+ *  "Connect" the IRQs of the DS1338 to the TWI/i2c master of the AVR.
+ */
 void
-ds1338_virt_attach(
-		struct avr_t * avr,
+ds1338_virt_attach_twi(
 		ds1338_virt_t * p,
 		uint32_t i2c_irq_base )
 {
-	// "connect" the IRQs of the DS1338 to the TWI/i2c master of the AVR
 	avr_connect_irq(
 		p->irq + TWI_IRQ_INPUT,
-		avr_io_getirq(avr, i2c_irq_base, TWI_IRQ_INPUT));
+		avr_io_getirq(p->avr, i2c_irq_base, TWI_IRQ_INPUT));
 	avr_connect_irq(
-		avr_io_getirq(avr, i2c_irq_base, TWI_IRQ_OUTPUT),
+		avr_io_getirq(p->avr, i2c_irq_base, TWI_IRQ_OUTPUT),
 		p->irq + TWI_IRQ_OUTPUT );
+}
+
+/*
+ * Optionally "connect" the square wave out IRQ to the AVR.
+ */
+void
+ds1338_virt_attach_square_wave_output (
+		ds1338_virt_t * p,
+		ds1338_pin_t * wiring)
+{
+	avr_connect_irq (
+		p->irq + DS1338_SQW_IRQ_OUT,
+	        avr_io_getirq (p->avr, AVR_IOCTL_IOPORT_GETIRQ(wiring->port), wiring->pin));
 }

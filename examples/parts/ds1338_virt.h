@@ -40,6 +40,7 @@
 
 #include "sim_irq.h"
 #include "sim_avr.h"
+#include "avr_ioport.h"
 
 // TWI address is fixed
 #define DS1338_VIRT_TWI_ADDR		0xD0
@@ -107,11 +108,22 @@
 // Generic unpack of 8bit BCD register. Don't use on seconds or hours.
 #define UNPACK_BCD(x) (((x) & 0x0F) + ((x) >> 4) * 10)
 
-typedef struct ds1338_clock_t
-{
-	struct avr_t * avr;
-	uint8_t value;
-} ds1338_clock_t;
+enum {
+	DS1338_TWI_IRQ_OUTPUT = 0,
+	DS1338_TWI_IRQ_INPUT,
+	DS1338_SQW_IRQ_OUT,
+	DS1338_IRQ_COUNT
+};
+
+/*
+ * Square wave out prescaler modes; see p11 of DS1338 datasheet.
+ */
+enum {
+	DS1338_VIRT_PRESCALER_DIV_32768 = 0,
+	DS1338_VIRT_PRESCALER_DIV_8,
+	DS1338_VIRT_PRESCALER_DIV_4,
+	DS1338_VIRT_PRESCALER_OFF,
+};
 
 /*
  * Describes the behaviour of the specified BCD register.
@@ -126,10 +138,18 @@ typedef struct bcd_reg_t {
 	uint8_t tens_mask;
 } bcd_reg_t;
 
+// TODO: This should be shared somewhere, is also used in ssd1306, and maybe elsewhere..
+typedef struct ds1338_pin_t
+{
+	char port;
+	uint8_t pin;
+} ds1338_pin_t;
+
 /*
  * DS1338 I2C clock
  */
 typedef struct ds1338_virt_t {
+	struct avr_t * avr;
 	avr_irq_t *	irq;		// irq list
 	int verbose;
 
@@ -151,10 +171,14 @@ ds1338_virt_init(
  * pass AVR_IOCTL_TWI_GETIRQ(0) for example as i2c_irq_base
  */
 void
-ds1338_virt_attach(
-		struct avr_t * avr,
+ds1338_virt_attach_twi(
 		ds1338_virt_t * p,
 		uint32_t i2c_irq_base );
+
+void
+ds1338_virt_attach_square_wave_output (
+		ds1338_virt_t * p,
+		ds1338_pin_t * wiring);
 
 static inline int
 ds1338_get_flag (uint8_t reg, uint8_t bit)
