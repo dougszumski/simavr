@@ -22,6 +22,7 @@
 // atmega32 has different name for Watchdog Turn-off Enable register 
 #define WDCE WDTOE
 #include "sim_avr.h"
+#define SIM_MMCU_HEADER 	"avr/iom16.h"
 
 #define SIM_VECTOR_SIZE	4
 #define SIM_MMCU		"atmega16"
@@ -32,7 +33,7 @@
 	
 #define _AVR_IO_H_
 #define __ASSEMBLER__
-#include "avr/iom16.h"
+
 // instantiate the new core
 #include "sim_megax.h"
 
